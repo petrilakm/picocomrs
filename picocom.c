@@ -57,6 +57,11 @@
 
 #include "custbaud.h"
 
+#ifdef USE_TE_GPIO
+#include <termios.h>
+#include "te_gpio.h"
+#endif
+
 /**********************************************************************/
 
 /* parity modes names */
@@ -219,6 +224,10 @@ struct {
     int raise_rts;
     int raise_dtr;
     int quiet;
+#ifdef USE_TE_GPIO
+    char *te_gpio;
+    int te_active_low;
+#endif
 } opts = {
     .port = NULL,
     .baud = 9600,
@@ -248,7 +257,11 @@ struct {
     .lower_dtr = 0,
     .raise_rts = 0,
     .raise_dtr = 0,
-    .quiet = 0
+    .quiet = 0,
+#ifdef USE_TE_GPIO
+    .te_gpio = NULL,
+    .te_active_low = 0,
+#endif
 };
 
 int sig_exit = 0;
@@ -294,6 +307,41 @@ int tty_write_sz;
         if ( tty_write_sz < TTY_WRITE_SZ_MIN )          \
             tty_write_sz = TTY_WRITE_SZ_MIN;            \
     } while (0)
+
+/**********************************************************************/
+
+#ifdef USE_TE_GPIO
+
+/* RS485 transmit-enable control. TE is raised just before anything is
+   transmitted to the port, and lowered once the output queue is empty
+   and the UART has finished shifting out the last character. */
+
+void fatal (const char *format, ...);
+
+static void
+te_tx_begin (void)
+{
+    if ( te_gpio_set(1) < 0 )
+        fatal("cannot set TE gpio: %s", strerror(errno));
+}
+
+static void
+te_tx_end (void)
+{
+    int r;
+
+    if ( ! te_gpio_is_active() )
+        return;
+    /* Wait until the last character has left the transmitter. Do not
+       use term_drain(), it adds a long settling delay. */
+    do {
+        r = tcdrain(tty_fd);
+    } while ( r < 0 && errno == EINTR );
+    if ( te_gpio_set(0) < 0 )
+        fatal("cannot clear TE gpio: %s", strerror(errno));
+}
+
+#endif /* of USE_TE_GPIO */
 
 /**********************************************************************/
 
@@ -689,6 +737,13 @@ cleanup (int drain, int noreset, int hup)
         }
     }
 
+#ifdef USE_TE_GPIO
+    te_gpio_close();
+    if ( opts.te_gpio ) {
+        free(opts.te_gpio);
+        opts.te_gpio = NULL;
+    }
+#endif
 #ifdef LINENOISE
     cleanup_history();
 #endif
@@ -998,6 +1053,12 @@ show_status (int quiet)
         statpf(STO, "*** dtr: %s\r\n", dtr_up ? "up" : "down");
         statpf(STO, "*** rts: %s\r\n", rts_up ? "up" : "down");
     }
+
+#ifdef USE_TE_GPIO
+    if ( te_gpio_desc() )
+        statpf(STO, "*** te gpio: %s (active %s)\r\n",
+               te_gpio_desc(), opts.te_active_low ? "low" : "high");
+#endif
 
     return mismatch;
 }
@@ -1361,6 +1422,14 @@ do_command (unsigned char c)
             fd_printf(STO, "*** cannot read filename ***\r\n");
             break;
         }
+#ifdef USE_TE_GPIO
+        /* The external command writes to the port directly, so TE
+           cannot follow individual transmissions. Hold it active for
+           the whole upload, and inactive for downloads. */
+        te_tx_end();
+        if ( c == KEY_SEND )
+            te_tx_begin();
+#endif
         run_cmd(tty_fd, xfr_cmd, fname);
         free(fname);
         break;
@@ -1375,6 +1444,9 @@ do_command (unsigned char c)
         fd_printf(STO, "*** wrote %d bytes ***\r\n", n);
         break;
     case KEY_BREAK:
+#ifdef USE_TE_GPIO
+        te_tx_begin();
+#endif
         term_break(tty_fd);
         fd_printf(STO, "\r\n*** break sent ***\r\n");
         break;
@@ -1423,6 +1495,13 @@ loop(void)
 
     while ( ! sig_exit ) {
         struct timeval tv, *ptv;
+
+#ifdef USE_TE_GPIO
+        /* Output queue empty (all written, or flushed by a command):
+           wait for the transmission to complete, then release TE. */
+        if ( tty_q.len == 0 )
+            te_tx_end();
+#endif
 
         ptv = NULL;
         FD_ZERO(&rdset);
@@ -1542,6 +1621,9 @@ loop(void)
 
             int sz;
             sz = (tty_q.len < tty_write_sz) ? tty_q.len : tty_write_sz;
+#ifdef USE_TE_GPIO
+            te_tx_begin();
+#endif
             do {
                 n = write(tty_fd, tty_q.buff, sz);
             } while ( n < 0 && errno == EINTR );
@@ -1629,6 +1711,9 @@ show_usage(char *name)
     if ( ! use_custom_baud() )
         printf("  NO_CUSTOM_BAUD is set\n");
 #endif
+#ifdef USE_TE_GPIO
+    printf("  USE_TE_GPIO is enabled\n");
+#endif
 
     printf("\nUsage is: %s [options] <tty port device>\n", s);
     printf("Options are:\n");
@@ -1657,6 +1742,10 @@ show_usage(char *name)
     printf("  --raise-rts\n");
     printf("  --lower-dtr\n");
     printf("  --raise-dtr\n");
+#ifdef USE_TE_GPIO
+    printf("  --te-gpio [<chip>:]<line> (RS485 transmit-enable gpio)\n");
+    printf("  --te-polarity high | low (TE level while transmitting)\n");
+#endif
     printf("  --<q>uiet\n");
     printf("  --<h>elp\n");
     printf("<map> is a comma-separated list of one or more of:\n");
@@ -1716,6 +1805,10 @@ parse_args(int argc, char *argv[])
         {"lower-dtr", no_argument, 0, 2},
         {"raise-rts", no_argument, 0, 3},
         {"raise-dtr", no_argument, 0, 4},
+#ifdef USE_TE_GPIO
+        {"te-gpio", required_argument, 0, 5},
+        {"te-polarity", required_argument, 0, 6},
+#endif
         {"quiet", no_argument, 0, 'q'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
@@ -1895,6 +1988,22 @@ parse_args(int argc, char *argv[])
         case 4:
             opts.raise_dtr = 1;
             break;
+#ifdef USE_TE_GPIO
+        case 5:
+            if ( opts.te_gpio ) free(opts.te_gpio);
+            opts.te_gpio = strdup(optarg);
+            break;
+        case 6:
+            if ( strcmp(optarg, "high") == 0 ) {
+                opts.te_active_low = 0;
+            } else if ( strcmp(optarg, "low") == 0 ) {
+                opts.te_active_low = 1;
+            } else {
+                fprintf(stderr, "Invalid --te-polarity: %s\n", optarg);
+                r = -1;
+            }
+            break;
+#endif
         case 'x':
             opts.exit_after = strtol(optarg, &ep, 10);
             if ( ! ep || *ep != '\0' || opts.exit_after < 0 ) {
@@ -1991,6 +2100,14 @@ parse_args(int argc, char *argv[])
         printf("exit_after is  : %d ms\n", opts.exit_after);
     }
     printf("exit is        : %s\n", opts.exit ? "yes" : "no");
+#ifdef USE_TE_GPIO
+    if ( opts.te_gpio ) {
+        printf("te_gpio is     : %s (active %s)\n",
+               opts.te_gpio, opts.te_active_low ? "low" : "high");
+    } else {
+        printf("te_gpio is     : none\n");
+    }
+#endif
     printf("\n");
     fflush(stdout);
 #endif /* of NO_HELP */
@@ -2077,6 +2194,15 @@ main (int argc, char *argv[])
         r = flock(tty_fd, LOCK_EX | LOCK_NB);
         if ( r < 0 )
             fatal("cannot lock %s: %s", opts.port, strerror(errno));
+    }
+#endif
+
+#ifdef USE_TE_GPIO
+    /* Put the transceiver in receive mode before configuring the port */
+    if ( opts.te_gpio ) {
+        r = te_gpio_open(opts.te_gpio, opts.te_active_low);
+        if ( r < 0 )
+            fatal("TE gpio: %s", te_gpio_strerror());
     }
 #endif
 

@@ -403,6 +403,33 @@ Picocom accepts the following command-line options.
     state of the DTR signal, after opening and configuring the port,
     is system dependent. On most systems the signal is raised.
 
+**--te-gpio** _[chip:]line_
+
+:   Use a GPIO line as the transmit-enable (TE / DE) signal of an
+    RS485 transceiver. The line is put in the inactive (receive) state
+    when picocom starts, is activated just before picocom transmits
+    anything to the port, and is deactivated once the output queue is
+    empty and the UART has finished sending the last character
+    (tcdrain(3)). It is also deactivated when picocom exits. _line_ is
+    the line offset on the GPIO chip, which on a Raspberry Pi is the
+    BCM GPIO number (e.g. **17** for header pin 11). _chip_ is a GPIO
+    character device, given as a path (**/dev/gpiochip4**) or a name
+    (**gpiochip4**). If _chip_ is omitted, the chip that drives the
+    Raspberry Pi header is located automatically (falling back to
+    **/dev/gpiochip0**). While a file is sent with the send-file
+    command, TE is held active for the whole transfer; during the
+    receive-file command it is held inactive. Only available on
+    Raspberry Pi builds (see **USE_TE_GPIO** in the output of
+    **--help**). (Default: disabled)
+
+**--te-polarity** high | low
+
+:   The level of the **--te-gpio** line while transmitting: **high**
+    for transceivers with an active-high DE input (most, e.g. MAX485),
+    or **low** for an active-low one. The opposite level is driven
+    while receiving. Only available on Raspberry Pi builds.
+    (Default: high)
+
 
 **--exit-aftrer** | **-x**
 

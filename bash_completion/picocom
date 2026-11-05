@@ -295,6 +295,11 @@ _picocom()
            --nolock \
            --quiet --help )
 
+    # RS485 TE gpio options exist only in Raspberry Pi builds
+    if grep -qas 'Raspberry Pi' /proc/device-tree/model; then
+        opts+=( --te-gpio --te-polarity )
+    fi
+
     baudrates=( 50 75 110 134 150 200 300 600 1200 1800 2400 4800 9600 \
                19200 38400 57600 115200 \
                230400 460800 500000 576000 921600 1000000 1152000 1500000 \
@@ -375,6 +380,14 @@ _picocom()
             ;;
         -x | --exit-after)
             # Do default completion
+            return 0
+            ;;
+        --te-gpio)
+            # Do default completion
+            return 0
+            ;;
+        --te-polarity)
+            COMPREPLY=( $(compgen -W "high low" -- "$cur") )
             return 0
             ;;
         *)

@@ -263,6 +263,26 @@ the following options:
    all the custom completion scripts you have put in
    `~/.bash_completion.d`
 
+## RS485 transmit-enable on Raspberry Pi
+
+When built on a Raspberry Pi, picocom can drive a GPIO line as the
+transmit-enable (TE / DE) input of an RS485 transceiver. The line is
+activated just before picocom transmits and deactivated once the last
+character has left the UART. For example, with DE on BCM GPIO 17:
+
+    picocom -b 115200 --te-gpio 17 /dev/ttyAMA0
+
+Use `--te-polarity low` for a transceiver with an active-low DE input.
+A GPIO chip can be given explicitly, as in `--te-gpio gpiochip4:17`.
+The feature uses the Linux GPIO character device (`/dev/gpiochipN`),
+so the user needs access to it (on Raspberry Pi OS, membership of the
+`gpio` group).
+
+The Makefile enables this support automatically when it detects a
+Raspberry Pi. Use `make TE_GPIO=1` to force it on (e.g. when
+cross-compiling for a Pi), or `make TE_GPIO=0` to leave it out. On
+builds without it, picocom is unchanged and the options don't exist.
+
 ## A low-tech terminal server
 
 You can use *picocom* to patch-together a very simple, *very

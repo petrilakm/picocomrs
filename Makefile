@@ -48,12 +48,25 @@ linenoise-1.0/linenoise.o : linenoise-1.0/linenoise.c linenoise-1.0/linenoise.h
 ## Comment this IN to remove help strings (saves ~ 4-6 Kb).
 #CPPFLAGS += -DNO_HELP
 
+## RS485 transmit-enable (TE / DE) control via a GPIO line
+## (--te-gpio, --te-polarity). Enabled automatically when building
+## on a Raspberry Pi. Override with "make TE_GPIO=1" (e.g. when
+## cross-compiling for a Pi; needs Linux >= 4.8 GPIO headers) or
+## "make TE_GPIO=0".
+TE_GPIO ?= $(shell grep -qas 'Raspberry Pi' /proc/device-tree/model \
+		     && echo 1 || echo 0)
+ifeq ($(TE_GPIO),1)
+CPPFLAGS += -DUSE_TE_GPIO
+OBJS += te_gpio.o
+endif
+te_gpio.o : te_gpio.c te_gpio.h
+
 
 OBJS += picocom.o term.o fdio.o split.o custbaud.o termios2.o custbaud_bsd.o
 picocom : $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
-picocom.o : picocom.c term.h fdio.h split.h custbaud.h
+picocom.o : picocom.c term.h fdio.h split.h custbaud.h te_gpio.h
 term.o : term.c term.h termios2.h custbaud_bsd.h custbaud.h
 split.o : split.c split.h
 fdio.o : fdio.c fdio.h
@@ -91,7 +104,7 @@ picocom.1.pdf : picocom.1
 clean:
 	rm -f picocom.o term.o fdio.o split.o
 	rm -f linenoise-1.0/linenoise.o
-	rm -f custbaud.o termios2.o custbaud_bsd.o
+	rm -f custbaud.o termios2.o custbaud_bsd.o te_gpio.o
 	rm -f *~
 	rm -f \#*\#
 
