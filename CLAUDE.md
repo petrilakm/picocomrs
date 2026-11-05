@@ -26,7 +26,7 @@ Features are toggled by `-D` flags, either by commenting lines in or out in the 
 - `USE_CUSTOM_BAUD` / `NO_CUSTOM_BAUD`: force custom baudrates on or off (see below)
 - `NO_HELP`: strips help strings
 - `TTY_Q_SZ`: cap on the output queue size (0 = unlimited)
-- `USE_TE_GPIO`: RS485 transmit-enable GPIO (`--te-gpio`, `--te-polarity`). Set by `TE_GPIO` in the Makefile, which auto-detects a Raspberry Pi from `/proc/device-tree/model` (override with `make TE_GPIO=1|0`). All of its code in `picocom.c` sits inside `#ifdef USE_TE_GPIO`, so builds without it are unchanged. Keep it that way.
+- `USE_TE_GPIO`: RS485 transmit-enable GPIO (`--te-gpio`, `--te-polarity`, `--te-debug`). Set by `TE_GPIO` in the Makefile, which auto-detects a Raspberry Pi from `/proc/device-tree/model` (override with `make TE_GPIO=1|0`). All of its code in `picocom.c` sits inside `#ifdef USE_TE_GPIO`, so builds without it are unchanged. Keep it that way.
 
 `Android.mk` duplicates these settings for Android builds, so keep it in sync when you add source files or flags. When you add a new `.c` file, also add it to `OBJS`, give it a header-dependency rule, and add its `.o` to `clean` in the `Makefile`.
 

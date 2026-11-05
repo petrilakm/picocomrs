@@ -49,12 +49,16 @@ static const char *rpi_chip_labels[] = {
 static struct {
     int fd;              /* line request fd, or -1 */
     int active;          /* current logical state */
+    int active_low;
     char desc[PATH_MAX + 16];
+    char info[256];
     char err[PATH_MAX + 128];
 } te = {
     .fd = -1,
     .active = 0,
+    .active_low = 0,
     .desc = "",
+    .info = "",
     .err = ""
 };
 
@@ -170,6 +174,40 @@ set_line (int fd, int on)
     return ioctl(fd, GPIO_V2_LINE_SET_VALUES_IOCTL, &v);
 }
 
+static int
+get_line (int fd, int *on)
+{
+    struct gpio_v2_line_values v;
+
+    v.bits = 0;
+    v.mask = 1;
+    if ( ioctl(fd, GPIO_V2_LINE_GET_VALUES_IOCTL, &v) < 0 )
+        return -1;
+    *on = (v.bits & 1) ? 1 : 0;
+    return 0;
+}
+
+static void
+line_info (int chip_fd, unsigned line, char *buf, size_t sz)
+{
+    struct gpio_v2_line_info li;
+
+    memset(&li, 0, sizeof(li));
+    li.offset = line;
+    if ( ioctl(chip_fd, GPIO_V2_GET_LINEINFO_IOCTL, &li) < 0 ) {
+        snprintf(buf, sz, "line info unavailable: %s", strerror(errno));
+        return;
+    }
+    snprintf(buf, sz, "name \"%s\", consumer \"%s\", %s%s%s%s (v2 ABI)",
+             li.name, li.consumer,
+             (li.flags & GPIO_V2_LINE_FLAG_OUTPUT) ? "output" :
+             (li.flags & GPIO_V2_LINE_FLAG_INPUT) ? "input" : "dir?",
+             (li.flags & GPIO_V2_LINE_FLAG_ACTIVE_LOW) ? ", active-low"
+                                                       : ", active-high",
+             (li.flags & GPIO_V2_LINE_FLAG_OPEN_DRAIN) ? ", open-drain" : "",
+             (li.flags & GPIO_V2_LINE_FLAG_OPEN_SOURCE) ? ", open-source" : "");
+}
+
 #else /* of GPIO_V2_GET_LINE_IOCTL */
 
 /* Older kernel headers: use the v1 line-handle ABI */
@@ -204,6 +242,38 @@ set_line (int fd, int on)
     memset(&d, 0, sizeof(d));
     d.values[0] = on ? 1 : 0;
     return ioctl(fd, GPIOHANDLE_SET_LINE_VALUES_IOCTL, &d);
+}
+
+static int
+get_line (int fd, int *on)
+{
+    struct gpiohandle_data d;
+
+    memset(&d, 0, sizeof(d));
+    if ( ioctl(fd, GPIOHANDLE_GET_LINE_VALUES_IOCTL, &d) < 0 )
+        return -1;
+    *on = d.values[0] ? 1 : 0;
+    return 0;
+}
+
+static void
+line_info (int chip_fd, unsigned line, char *buf, size_t sz)
+{
+    struct gpioline_info li;
+
+    memset(&li, 0, sizeof(li));
+    li.line_offset = line;
+    if ( ioctl(chip_fd, GPIO_GET_LINEINFO_IOCTL, &li) < 0 ) {
+        snprintf(buf, sz, "line info unavailable: %s", strerror(errno));
+        return;
+    }
+    snprintf(buf, sz, "name \"%s\", consumer \"%s\", %s%s%s%s (v1 ABI)",
+             li.name, li.consumer,
+             (li.flags & GPIOLINE_FLAG_IS_OUT) ? "output" : "input",
+             (li.flags & GPIOLINE_FLAG_ACTIVE_LOW) ? ", active-low"
+                                                   : ", active-high",
+             (li.flags & GPIOLINE_FLAG_OPEN_DRAIN) ? ", open-drain" : "",
+             (li.flags & GPIOLINE_FLAG_OPEN_SOURCE) ? ", open-source" : "");
 }
 
 #endif /* of GPIO_V2_GET_LINE_IOCTL */
@@ -249,17 +319,26 @@ te_gpio_open (const char *spec, int active_low)
 
     fd = request_line(chip_fd, line, active_low);
     e = errno;
-    /* The line fd stays valid after the chip fd is closed */
-    close(chip_fd);
     if ( fd < 0 ) {
+        close(chip_fd);
         snprintf(te.err, sizeof(te.err), "cannot request %s line %u: %s",
                  path, line, strerror(e));
         errno = e;
         return -1;
     }
 
+    {
+        char li[192];
+        line_info(chip_fd, line, li, sizeof(li));
+        snprintf(te.info, sizeof(te.info), "chip label \"%s\", %s",
+                 (r == 0) ? info.label : "?", li);
+    }
+    /* The line fd stays valid after the chip fd is closed */
+    close(chip_fd);
+
     te.fd = fd;
     te.active = 0;
+    te.active_low = active_low ? 1 : 0;
     snprintf(te.desc, sizeof(te.desc), "%s:%u", path, line);
     return 0;
 }
@@ -282,6 +361,28 @@ te_gpio_is_active (void)
     return te.fd >= 0 && te.active;
 }
 
+int
+te_gpio_get (int *logical, int *level)
+{
+    int on;
+
+    if ( te.fd < 0 ) {
+        errno = EBADF;
+        return -1;
+    }
+    if ( get_line(te.fd, &on) < 0 )
+        return -1;
+    *logical = on;
+    *level = on ^ te.active_low;
+    return 0;
+}
+
+const char *
+te_gpio_info (void)
+{
+    return (te.fd >= 0) ? te.info : NULL;
+}
+
 void
 te_gpio_close (void)
 {
@@ -292,6 +393,7 @@ te_gpio_close (void)
     te.fd = -1;
     te.active = 0;
     te.desc[0] = '\0';
+    te.info[0] = '\0';
 }
 
 const char *

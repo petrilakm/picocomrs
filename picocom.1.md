@@ -430,6 +430,19 @@ Picocom accepts the following command-line options.
     while receiving. Only available on Raspberry Pi builds.
     (Default: high)
 
+**--te-debug**
+
+:   Trace the **--te-gpio** line on standard error: the line details
+    reported by the kernel at startup (chip label, line name,
+    direction, active-low flag), every switch between transmit and
+    receive together with the pin level read back from the GPIO
+    controller, the number of bytes written to and read from the port,
+    and how long picocom waited for the transmitter to drain. Each
+    line is prefixed with a timestamp in seconds since the first
+    trace. Redirect standard error (e.g. **2>te.log**) to keep the
+    trace out of the terminal. Only available on Raspberry Pi builds.
+    (Default: disabled)
+
 
 **--exit-aftrer** | **-x**
 

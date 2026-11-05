@@ -59,6 +59,23 @@ int te_gpio_set (int on);
  */
 int te_gpio_is_active (void);
 
+/* F te_gpio_get
+ *
+ * Read the line's value back from the GPIO controller. Stores the
+ * logical value (1 = transmit) in "*logical" and the physical pin
+ * level (1 = high) in "*level". Returns 0 on success, or a negative
+ * value (with errno set) on failure.
+ */
+int te_gpio_get (int *logical, int *level);
+
+/* F te_gpio_info
+ *
+ * Returns a string with what the kernel reports about the open line
+ * (chip label, line name, consumer, direction and flags), or NULL if
+ * no line is open.
+ */
+const char *te_gpio_info (void);
+
 /* F te_gpio_close
  *
  * Set the TE line inactive and release it. Safe to call if the line

@@ -59,6 +59,7 @@
 
 #ifdef USE_TE_GPIO
 #include <termios.h>
+#include <time.h>
 #include "te_gpio.h"
 #endif
 
@@ -227,6 +228,7 @@ struct {
 #ifdef USE_TE_GPIO
     char *te_gpio;
     int te_active_low;
+    int te_debug;
 #endif
 } opts = {
     .port = NULL,
@@ -261,6 +263,7 @@ struct {
 #ifdef USE_TE_GPIO
     .te_gpio = NULL,
     .te_active_low = 0,
+    .te_debug = 0,
 #endif
 };
 
@@ -318,27 +321,84 @@ int tty_write_sz;
 
 void fatal (const char *format, ...);
 
+/* --te-debug: trace TE transitions on stderr, with timestamps and the
+   pin level read back from the GPIO controller. */
+
+static long long
+te_dbg_usec (void)
+{
+    static long long t0 = -1;
+    struct timespec ts;
+    long long t;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    t = (long long)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+    if ( t0 < 0 ) t0 = t;
+    return t - t0;
+}
+
+static void
+te_dbg (const char *format, ...)
+{
+    va_list args;
+    long long t;
+
+    if ( ! opts.te_debug )
+        return;
+    t = te_dbg_usec();
+    fd_printf(STE, "[TE %4lld.%06lld] ", t / 1000000, t % 1000000);
+    va_start(args, format);
+    fd_vprintf(STE, format, args);
+    va_end(args);
+    fd_printf(STE, "\r\n");
+}
+
+static void
+te_dbg_state (const char *what)
+{
+    int logical, level;
+
+    if ( ! opts.te_debug )
+        return;
+    if ( te_gpio_get(&logical, &level) < 0 )
+        te_dbg("%s: readback failed: %s", what, strerror(errno));
+    else
+        te_dbg("%s: readback logical %d (%s), pin %s",
+               what, logical, logical ? "transmit" : "receive",
+               level ? "HIGH" : "LOW");
+}
+
 static void
 te_tx_begin (void)
 {
+    if ( te_gpio_is_active() )
+        return;
     if ( te_gpio_set(1) < 0 )
         fatal("cannot set TE gpio: %s", strerror(errno));
+    te_dbg_state("TE -> transmit");
 }
 
 static void
 te_tx_end (void)
 {
     int r;
+    long long t = 0;
 
     if ( ! te_gpio_is_active() )
         return;
     /* Wait until the last character has left the transmitter. Do not
        use term_drain(), it adds a long settling delay. */
+    if ( opts.te_debug ) t = te_dbg_usec();
     do {
         r = tcdrain(tty_fd);
     } while ( r < 0 && errno == EINTR );
+    if ( r < 0 )
+        te_dbg("tcdrain failed: %s", strerror(errno));
+    else if ( opts.te_debug )
+        te_dbg("tcdrain done after %lld us", te_dbg_usec() - t);
     if ( te_gpio_set(0) < 0 )
         fatal("cannot clear TE gpio: %s", strerror(errno));
+    te_dbg_state("TE -> receive");
 }
 
 #endif /* of USE_TE_GPIO */
@@ -1603,6 +1663,10 @@ loop(void)
             } else {
                 int i;
                 char *bmp = &buff_map[0];
+#ifdef USE_TE_GPIO
+                te_dbg("read %d bytes from port (TE %s)", n,
+                       te_gpio_is_active() ? "transmit" : "receive");
+#endif
                 if ( opts.log_filename )
                     if ( writen_ni(log_fd, buff_rd, n) < n )
                         fatal("write to logfile failed: %s", strerror(errno));
@@ -1629,6 +1693,10 @@ loop(void)
             } while ( n < 0 && errno == EINTR );
             if ( n <= 0 )
                 fatal("write to port failed: %s", strerror(errno));
+#ifdef USE_TE_GPIO
+            te_dbg("wrote %d bytes to port, %d left in queue",
+                   n, tty_q.len - n);
+#endif
             if ( opts.lecho && opts.log_filename )
                 if ( writen_ni(log_fd, tty_q.buff, n) < n )
                     fatal("write to logfile failed: %s", strerror(errno));
@@ -1745,6 +1813,7 @@ show_usage(char *name)
 #ifdef USE_TE_GPIO
     printf("  --te-gpio [<chip>:]<line> (RS485 transmit-enable gpio)\n");
     printf("  --te-polarity high | low (TE level while transmitting)\n");
+    printf("  --te-debug (trace TE transitions on stderr)\n");
 #endif
     printf("  --<q>uiet\n");
     printf("  --<h>elp\n");
@@ -1808,6 +1877,7 @@ parse_args(int argc, char *argv[])
 #ifdef USE_TE_GPIO
         {"te-gpio", required_argument, 0, 5},
         {"te-polarity", required_argument, 0, 6},
+        {"te-debug", no_argument, 0, 7},
 #endif
         {"quiet", no_argument, 0, 'q'},
         {"help", no_argument, 0, 'h'},
@@ -2003,6 +2073,9 @@ parse_args(int argc, char *argv[])
                 r = -1;
             }
             break;
+        case 7:
+            opts.te_debug = 1;
+            break;
 #endif
         case 'x':
             opts.exit_after = strtol(optarg, &ep, 10);
@@ -2102,8 +2175,9 @@ parse_args(int argc, char *argv[])
     printf("exit is        : %s\n", opts.exit ? "yes" : "no");
 #ifdef USE_TE_GPIO
     if ( opts.te_gpio ) {
-        printf("te_gpio is     : %s (active %s)\n",
-               opts.te_gpio, opts.te_active_low ? "low" : "high");
+        printf("te_gpio is     : %s (active %s)%s\n",
+               opts.te_gpio, opts.te_active_low ? "low" : "high",
+               opts.te_debug ? ", debug" : "");
     } else {
         printf("te_gpio is     : none\n");
     }
@@ -2203,6 +2277,13 @@ main (int argc, char *argv[])
         r = te_gpio_open(opts.te_gpio, opts.te_active_low);
         if ( r < 0 )
             fatal("TE gpio: %s", te_gpio_strerror());
+        te_dbg("opened %s, polarity active-%s (transmit = pin %s)",
+               te_gpio_desc(), opts.te_active_low ? "low" : "high",
+               opts.te_active_low ? "LOW" : "HIGH");
+        te_dbg("kernel: %s", te_gpio_info());
+        te_dbg_state("initial");
+    } else if ( opts.te_debug ) {
+        pinfo("!! --te-debug given without --te-gpio, ignored\r\n");
     }
 #endif
 

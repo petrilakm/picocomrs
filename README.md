@@ -278,6 +278,16 @@ The feature uses the Linux GPIO character device (`/dev/gpiochipN`),
 so the user needs access to it (on Raspberry Pi OS, membership of the
 `gpio` group).
 
+To check the wiring and polarity, add `--te-debug`. Picocom then
+prints, on stderr, each switch between transmit and receive together
+with the pin level read back from the GPIO controller, the bytes
+written and read, and the drain time. To keep the trace separate from
+the terminal session, redirect it:
+
+    picocom -b 115200 --te-gpio 17 --te-debug /dev/ttyAMA0 2>te.log
+
+and watch it from a second terminal with `tail -f te.log`.
+
 The Makefile enables this support automatically when it detects a
 Raspberry Pi. Use `make TE_GPIO=1` to force it on (e.g. when
 cross-compiling for a Pi), or `make TE_GPIO=0` to leave it out. On
