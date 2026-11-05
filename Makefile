@@ -9,7 +9,7 @@ LD = $(CC)
 LDFLAGS ?= -g
 LDLIBS ?=
 
-all: picocom
+all: picocomrs
 OBJS =
 
 ## This is the maximum size (in bytes) the output (e.g. copy-paste)
@@ -53,8 +53,8 @@ linenoise-1.0/linenoise.o : linenoise-1.0/linenoise.c linenoise-1.0/linenoise.h
 ## on a Raspberry Pi. Override with "make TE_GPIO=1" (e.g. when
 ## cross-compiling for a Pi; needs Linux >= 4.8 GPIO headers) or
 ## "make TE_GPIO=0".
-TE_GPIO ?= $(shell grep -qas 'Raspberry Pi' /proc/device-tree/model \
-		     && echo 1 || echo 0)
+TE_GPIO = 1
+
 ifeq ($(TE_GPIO),1)
 CPPFLAGS += -DUSE_TE_GPIO
 OBJS += te_gpio.o
@@ -63,7 +63,7 @@ te_gpio.o : te_gpio.c te_gpio.h
 
 
 OBJS += picocom.o term.o fdio.o split.o custbaud.o termios2.o custbaud_bsd.o
-picocom : $(OBJS)
+picocomrs : $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
 picocom.o : picocom.c term.h fdio.h split.h custbaud.h te_gpio.h
