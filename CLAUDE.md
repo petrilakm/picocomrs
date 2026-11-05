@@ -11,6 +11,7 @@ picocom (v3.2a): a minimal dumb-terminal emulator for serial ports, written in C
 ```sh
 make                 # builds ./picocom (GNU make; use gmake on BSDs)
 make clean && make   # rebuild after changing CPPFLAGS or Makefile options
+cd <builddir> && make -f <srcdir>/Makefile VPATH=<srcdir>   # out-of-tree build; object subdirs are created by the .c.o rule
 make doc             # regenerates picocom.1, picocom.1.html, picocom.1.pdf from picocom.1.md (needs pandoc, groff, and ~/.pandoc templates)
 ```
 

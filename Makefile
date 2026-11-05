@@ -74,7 +74,10 @@ termios2.o : termios2.c termios2.h termbits2.h custbaud.h
 custbaud_bsd.o : custbaud_bsd.c custbaud_bsd.h custbaud.h
 custbaud.o : custbaud.c custbaud.h
 
+## Create the object's directory first, for out-of-tree builds:
+##   cd <builddir> && make -f <srcdir>/Makefile VPATH=<srcdir>
 .c.o :
+	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ -c $<
 
 
