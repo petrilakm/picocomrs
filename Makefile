@@ -81,9 +81,9 @@ custbaud.o : custbaud.c custbaud.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ -c $<
 
 
-doc : picocom.1.html picocom.1 picocom.1.pdf
+doc : picocomrs.1.html picocomrs.1 picocomrs.1.pdf
 
-picocom.1 : picocom.1.md
+picocomrs.1 : picocomrs.1.md
 	sed 's/\*\*\[/\*\*/g;s/\]\*\*/\*\*/g' $? \
 	| pandoc -s -t man \
 	    -Vfooter="Picocom $(VERSION)" -Vdate="`date -I`" \
@@ -91,7 +91,7 @@ picocom.1 : picocom.1.md
 	    -Vhyphenate='' \
 	    -o $@
 
-picocom.1.html : picocom.1.md
+picocomrs.1.html : picocomrs.1.md
 	pandoc -s -t html \
 	    --template ~/.pandoc/tmpl/manpage.html \
 	    -c ~/.pandoc/css/normalize-noforms.css \
@@ -100,7 +100,7 @@ picocom.1.html : picocom.1.md
 	    -Vversion="v$(VERSION)" -Vdate="`date -I`" \
 	    -o $@ $?
 
-picocom.1.pdf : picocom.1
+picocomrs.1.pdf : picocom.1
 	groff -man -Tpdf $? > $@
 
 
@@ -115,7 +115,7 @@ distclean: clean
 	rm -f picocom
 
 realclean: distclean
-	rm -f picocom.1
-	rm -f picocom.1.html
-	rm -f picocom.1.pdf
+	rm -f picocomrs.1
+	rm -f picocomrs.1.html
+	rm -f picocomrs.1.pdf
 	rm -f CHANGES
